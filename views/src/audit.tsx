@@ -47,6 +47,9 @@ interface AuditData extends EntityData {
   readonly summary: DataMap;
   readonly rows: EntityID<ArrayData>;
   readonly rules: EntityID<ArrayData>;
+  // Jobs before task texts were grouped have neither of these.
+  readonly task_texts?: EntityID<ArrayData>; // [text]: {id, text, runs}
+  readonly extractions?: EntityID<ArrayData>; // [text]: Judgment
   readonly judgments: EntityID<ArrayData>;
   readonly action_judgments: EntityID<ArrayData>;
   readonly runs: EntityID<ArrayData>;
@@ -155,6 +158,7 @@ export function AuditView({ id }: { id: EntityID<AuditData> }) {
         Rules extracted by {audit.extract_model}; both judges are {audit.judge_model}. Open a run to read it, or a judgment to
         see each rule's verdict with citations into the run.
       </p>
+      {audit.task_texts && audit.extractions && <TaskTexts texts={audit.task_texts} extractions={audit.extractions} />}
       <h3 className={layout.subtitle}>runs</h3>
       <DataTable rows={rows} columns={columns} rowKey={(r) => r.name} initialSort={{ key: "full_vs", direction: "desc" }} />
     </>
@@ -190,4 +194,32 @@ export function AuditOverview({ invocations }: InvocationPanelProps) {
 
 function Overview({ output }: { output: EntityID<ArrayData> }) {
   return <AuditView id={scalarEntityId(unwrap(useEntity(output))) as EntityID<AuditData>} />;
+}
+
+interface TaskTextRow {
+  readonly id: string;
+  readonly text: string;
+  readonly runs: number;
+  readonly extraction: EntityID | undefined;
+}
+
+/** The review queue: each distinct task text, most runs first, with the rules extracted from it. */
+function TaskTexts({ texts, extractions }: { texts: EntityID<ArrayData>; extractions: EntityID<ArrayData> }) {
+  const ex = new Map(rowsOf(unwrap(useEntity(extractions))).flatMap(({ key, value }) => (isEntityID(value) ? [[String(key[0]), value] as const] : [])));
+  const rows: TaskTextRow[] = rowsOf(unwrap(useEntity(texts))).map(({ key, value }) => {
+    const v = value as unknown as { text: string; runs: number };
+    return { id: String(key[0]), text: v.text, runs: v.runs, extraction: ex.get(String(key[0])) };
+  });
+  const columns: TableColumn<TaskTextRow>[] = [
+    { key: "runs", label: "runs", numeric: true, width: 60, value: (r) => r.runs },
+    { key: "rules", label: "extracted rules", width: 170, value: (r) => r.id, cell: (r) => (r.extraction ? <EntityLink id={r.extraction} /> : r.id) },
+    { key: "text", label: "task text", value: (r) => r.text.replace(/\s+/g, " ").slice(0, 200) },
+  ];
+  return (
+    <>
+      <h3 className={layout.subtitle}>task texts to review</h3>
+      <p className={layout.muted}>Runs grouped by task text (one text containing another counts as the same). Rules are extracted once per text; review the most used first.</p>
+      <DataTable rows={rows} columns={columns} rowKey={(r) => r.id} initialSort={{ key: "runs", direction: "desc" }} />
+    </>
+  );
 }
