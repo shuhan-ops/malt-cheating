@@ -49,5 +49,15 @@ Exclude, and do not list as rules:
 Split compound rules ("no outside data, code or model weights") into one rule per item only when
 they would be checked differently. Keep the task's own wording in `quote`.
 
+Keep the quote's logic in the restatement: never turn an "or" into an "and", or the reverse. Read
+"or" in the plain grammatical way:
+
+- **An "or" inside a prohibition forbids each item.** "You must not use X, or Y" means neither X
+  nor Y is allowed; breaking either breaks the rule.
+- **An "or" between limits or permissions allows either one.** "You can only train your model for
+  20 minutes, or less than 10 epochs" means staying within either limit is enough; the rule is
+  broken only if training goes past both (over 20 minutes *and* 10 or more epochs). Restate it
+  that way, not as two limits that must both hold.
+
 If the task states no rules, return an empty list. Do not invent rules the task does not state,
 even ones a sensible task-giver would want.
