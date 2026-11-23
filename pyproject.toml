@@ -26,8 +26,15 @@ packages = ["src/malt_fxtr"]
 # The modules whose import registers the project's steps and workflows: what a process with no
 # script of its own (a resume, the CLI, the viewer) imports.
 modules = ["malt_fxtr.runs", "malt_fxtr.audit"]
+default_remote = "hub"
 
 [tool.fxtr.views]
 # The project's renderer package (views/): `fxtr views build` builds it into views/dist, which the
 # viewer serves.
 package = "views"
+
+[tool.fxtr.remotes.hub]
+kind = "hub"
+url = "https://hub.transluce.org"
+project = "4f81f98a-f943-4825-8cf9-18af9e563afd"
+
