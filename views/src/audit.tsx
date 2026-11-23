@@ -19,6 +19,7 @@ import {
   type EntityViewProps,
   type InvocationPanelProps,
 } from "fxtr-view";
+import { Discrepancies } from "./discrepancies";
 import { DataTable, InvocationHead, InvocationOutcome, Kind, Stat, Stats, formatNumber, layout, type TableColumn } from "fxtr-view-kit";
 
 export const AUDIT = "local.malt_fxtr.Audit.v1";
@@ -54,6 +55,8 @@ interface AuditData extends EntityData {
   readonly action_judgments: EntityID<ArrayData>;
   readonly runs: EntityID<ArrayData>;
   readonly action_runs: EntityID<ArrayData>;
+  // Jobs before the discrepancy stage have none.
+  readonly discrepancies?: EntityID<ArrayData> | null;
 }
 
 interface JudgeRow {
@@ -158,6 +161,9 @@ export function AuditView({ id }: { id: EntityID<AuditData> }) {
         Rules extracted by {audit.extract_model}; both judges are {audit.judge_model}. Open a run to read it, or a judgment to
         see each rule's verdict with citations into the run.
       </p>
+      {audit.discrepancies && (
+        <Discrepancies discrepancies={audit.discrepancies} runs={audit.runs} judgments={audit.judgments} actionJudgments={audit.action_judgments} />
+      )}
       {audit.task_texts && audit.extractions && <TaskTexts texts={audit.task_texts} extractions={audit.extractions} />}
       <h3 className={layout.subtitle}>runs</h3>
       <DataTable rows={rows} columns={columns} rowKey={(r) => r.name} initialSort={{ key: "full_vs", direction: "desc" }} />

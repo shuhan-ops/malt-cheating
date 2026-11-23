@@ -1,0 +1,57 @@
+.filters { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 10px; }
+.filter {
+  font: inherit; font-size: var(--text-sm); padding: 2px 10px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--bg); color: var(--fg-dim);
+}
+.filter[aria-pressed="true"] { border-color: var(--select-line); background: var(--select-bg); color: var(--select-fg); }
+.count { font-family: var(--font-mono); font-size: var(--text-xs); margin-left: 4px; }
+
+.list { display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; }
+
+.card { border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; background: var(--bg); }
+.card[data-kind="ours only"] { border-left: 3px solid var(--danger); }
+.card[data-kind="MALT only"] { border-left: 3px solid var(--select-accent); }
+.card[data-kind="judges split"] { border-left: 3px solid var(--line-strong); }
+
+.head { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; }
+.kind { font-size: var(--text-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--fg-dim); }
+.kind[data-kind="ours only"] { color: var(--danger); }
+.kind[data-kind="MALT only"] { color: var(--select-accent); }
+.task { font-weight: 600; color: var(--fg); }
+.meta { color: var(--fg-dim); font-size: var(--text-sm); }
+
+.calls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.call { border: 1px solid var(--line-soft); border-radius: 4px; padding: 4px 8px; display: flex; flex-direction: column; background: var(--bg-alt); }
+.call[data-flagged="true"] { border-color: var(--danger); background: var(--danger-bg); }
+.callLabel { font-size: var(--text-xs); color: var(--fg-dim); }
+.callValue { font-size: var(--text-sm); color: var(--fg); font-weight: 600; }
+.call[data-flagged="true"] .callValue { color: var(--danger); }
+
+.sides { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; }
+.side { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.sideHead { display: flex; gap: 8px; align-items: baseline; border-bottom: 1px solid var(--line-soft); padding-bottom: 2px; }
+.sideLabel { font-size: var(--text-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--fg-dim); }
+
+.rule { display: flex; flex-direction: column; gap: 4px; }
+.ruleHead { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; }
+.ruleId { font-family: var(--font-mono); font-size: var(--text-sm); font-weight: 600; color: var(--fg); }
+.verdict { font-size: var(--text-xs); font-weight: 600; padding: 0 6px; border-radius: 3px; color: var(--danger); background: var(--danger-bg); }
+.verdict[data-verdict="attempted"] { color: var(--fg-dim); background: var(--muted-bg); }
+.tag { font-size: var(--text-xs); color: var(--fg-dim); border: 1px solid var(--line); border-radius: 999px; padding: 0 6px; }
+.ruleText { font-size: var(--text-sm); color: var(--fg); }
+.quote { margin: 0; padding-left: 8px; border-left: 2px solid var(--line); color: var(--fg-dim); font-size: var(--text-sm); font-style: italic; }
+
+.prose { font-size: var(--text-sm); color: var(--fg); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.cite {
+  font: inherit; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--select-fg); cursor: pointer;
+  background: var(--select-bg); border: 1px solid var(--select-line); border-radius: 3px; padding: 0 4px; margin: 0 1px;
+}
+.cite:hover { background: var(--select-bg-strong); }
+.cite[aria-pressed="true"] { background: var(--select-accent); border-color: var(--select-accent); color: var(--bg); }
+
+.section summary { cursor: pointer; font-size: var(--text-xs); font-weight: 600; color: var(--fg-dim); text-transform: uppercase; letter-spacing: 0.04em; }
+.section[open] summary { margin-bottom: 4px; }
+
+@media (max-width: 640px) {
+  .calls { grid-template-columns: 1fr; }
+}

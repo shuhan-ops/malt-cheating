@@ -17,6 +17,8 @@ For each run (an `AgentRun` from `load.py`, keyed by [task, run]):
    the tool calls alone (that rubric plus rubrics/judge_actions_only.md). Both cite transcript lines.
 6. `malt.row_transform_audit_row` puts both judgments next to MALT's own labels, and `malt.frame_aggregate_agreement`
    compares each judge with MALT's `ignores_task_instructions` label and with the other.
+7. `malt.row_transform_discrepancy` lines up the three calls on each run with the rules each judge
+   found broken, and a filter keeps the runs where they do not all agree, for review.
 
 The workflow returns an `Audit` that references every array, for the results overview.
 """
@@ -392,6 +394,68 @@ async def row_transform_audit_row(context: StepContext, full: Judgment, actions:
     )
 
 
+class BrokenRule(TypedDict):
+    """A rule one judge found attempted or violated, with the rule's wording."""
+
+    index: int  # the verdict's position in the judge's answer, where its evidence's citations point
+    rule_id: str
+    rule: str
+    quote: str
+    verdict: str  # attempted or violated
+    ambiguous: bool
+    confidence: str
+    disclosure: str | None
+
+
+class JudgeSide(TypedDict):
+    judged: bool
+    broke: bool  # false when the judge gave no answer
+    broken: list[BrokenRule]
+
+
+class Discrepancy(TypedDict):
+    """One run's three calls (MALT's label and both judges) and whether they agree."""
+
+    agree: bool  # all three say the same
+    kind: str  # both flag, neither flags, ours only, MALT only, or judges split
+    model: str | None
+    malt_labels: list[str]
+    malt: bool
+    full: JudgeSide
+    actions: JudgeSide
+
+
+def _side(judgment: Judgment, rules: dict[str, dict]) -> JudgeSide:
+    out = judgment.output
+    if out is None:
+        return JudgeSide(judged=False, broke=False, broken=[])
+    broken = [
+        BrokenRule(
+            index=i, rule_id=v["rule_id"], rule=rules.get(v["rule_id"], {}).get("rule", ""), quote=rules.get(v["rule_id"], {}).get("quote", ""),
+            verdict=v["verdict"], ambiguous=bool(v["ambiguous"]), confidence=v["confidence"], disclosure=v.get("disclosure"),
+        )
+        for i, v in enumerate(cast(list[dict], out["verdicts"]))
+        if v["verdict"] in ("attempted", "violated")
+    ]
+    return JudgeSide(judged=True, broke=bool(out["broke_stated_rule"]), broken=broken)
+
+
+@step(name="malt.row_transform_discrepancy")
+async def row_transform_discrepancy(context: StepContext, full: Judgment, actions: Judgment, rules: TextEntity, row: AuditRow) -> Discrepancy:
+    """Line up MALT's label and both judges' calls on one run, with the rules each judge found broken."""
+    by_id = {r["id"]: r for r in json.loads(rules.text)["rules"]}
+    f, a, m = _side(full, by_id), _side(actions, by_id), row["malt_ignores_instructions"]
+    if f["broke"] == a["broke"] == m:
+        kind: Any = "both flag" if m else "neither flags"
+    elif f["broke"] == a["broke"]:
+        kind = "ours only" if f["broke"] else "MALT only"
+    else:
+        kind = "judges split"
+    return Discrepancy(
+        agree=kind in ("both flag", "neither flags"), kind=kind, model=row["model"], malt_labels=row["malt_labels"], malt=m, full=f, actions=a,
+    )
+
+
 class Agreement(TypedDict):
     """One judge's `broke_stated_rule` against MALT's `ignores_task_instructions` label."""
 
@@ -473,6 +537,9 @@ class Audit(DataclassEntity, fxtr_type="local.malt_fxtr.Audit.v1"):
     action_judgments: BoundID[Array[BoundID[Judgment]]]  # the actions-only judge
     runs: BoundID[Array[BoundID[AgentRun]]]  # compacted, as the full judge read them
     action_runs: BoundID[Array[BoundID[AgentRun]]]  # as the actions-only judge read them
+    # [task, run]: the runs where MALT and the two judges do not all agree. Jobs before this stage
+    # have none.
+    discrepancies: BoundID[Array[Discrepancy]] | None = None
 
 
 @workflow(name="malt.rules_audit")
@@ -524,6 +591,12 @@ async def rules_audit(
     )
     rows = context.run_step("row_transform_audit_row", row_transform_audit_row, {"full": judgments, "actions": action_judgments, "run": runs}, map_over=each)
     summary = context.run_step("frame_aggregate_agreement", frame_aggregate_agreement, {"rows": rows})
+    calls = context.run_step(
+        "row_transform_discrepancy", row_transform_discrepancy,
+        {"full": judgments, "actions": action_judgments, "rules": rules, "row": rows}, map_over=each,
+    )
+    # Keep only the runs where MALT and the two judges do not all say the same.
+    discrepancies = calls.filter(~value().field("agree")).collect()
     return Audit(
         extract_model=await extract_model.item(),
         judge_model=await judge_model.item(),
@@ -536,4 +609,5 @@ async def rules_audit(
         action_judgments=await context.store(await action_judgments.observe()),
         runs=await context.store(await compact.observe()),
         action_runs=await context.store(await actions.observe()),
+        discrepancies=await context.store(await discrepancies.observe()),
     )
