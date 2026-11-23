@@ -139,7 +139,13 @@ export function RunReader({ id, params }: ViewProps<typeof RUN_READER>) {
   const [showNotices, setShowNotices] = useState(true);
   const selected = selectedMessage(params?.selector);
   const selectedRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => selectedRef.current?.scrollIntoView({ block: "center" }), [selected]);
+  // A pane that has just opened is not laid out yet when the effect runs, so scroll again once it is.
+  useEffect(() => {
+    const scroll = () => selectedRef.current?.scrollIntoView({ block: "center" });
+    scroll();
+    const timers = [100, 400].map((ms) => setTimeout(scroll, ms));
+    return () => timers.forEach(clearTimeout);
+  }, [id, selected]);
 
   const meta = run.metadata as { readonly [k: string]: unknown };
   const labels = Array.isArray(meta["labels"]) ? (meta["labels"] as string[]) : [];
