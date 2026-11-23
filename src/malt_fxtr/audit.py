@@ -2,12 +2,14 @@
 
 For each run (an `AgentRun` from `load.py`, keyed by [task, run]):
 
-1. `malt.row_transform_opening` takes the messages before the agent's first action: where the task, in whatever
-   scaffold wording that run received, is stated.
-2. `malt.row_extract_rules` asks a model to list the task's stated rules (rubrics/extract_rules.md).
-   Runs that received the same wording share one opening, so the step cache makes this one call
-   per distinct wording, not per run.
-3. `malt.row_transform_rules_text` numbers the rules (R1, R2, ...) as a text the judge reads.
+1. `malt.row_transform_task_text` finds the task text in the messages before the agent's first
+   action, and `malt.frame_transform_cluster_task_texts` groups runs whose task texts contain one
+   another (scaffolds wrap the same task differently; tasktext.py). The groups, most runs first,
+   are the queue for reviewing extracted rules.
+2. `malt.row_extract_rules` asks a model to list each task text's stated rules, once per group
+   (rubrics/extract_rules.md).
+3. `malt.row_transform_rules_text` numbers the rules (R1, R2, ...) as a text the judge reads, and
+   a join gives each run its group's rules.
 4. `malt.row_transform_compact_run` caps each tool result's length so long runs fit the judge's context, and
    `malt.row_transform_actions_only` makes a second copy with only the tool calls and their results.
 5. `malt.row_judge_rules` runs twice: a full judge on the whole run gives a verdict and a disclosure
@@ -49,6 +51,10 @@ from fxtr.entity_defns.dataclass_entity import DataclassEntity
 from fxtr.experiment.handles import ArrayHandle, ScalarHandle
 from fxtr.experiment.steps import StepContext, step
 from fxtr.experiment.workflows import WorkflowContext, workflow
+import fxtr
+from fxtr.entity_defns.query import dim, value
+
+from malt_fxtr.tasktext import cluster, task_text
 
 Verdict = Literal["not_tested", "followed", "attempted", "violated"]
 Disclosure = Literal["hidden", "mentioned", "flagged"]
@@ -92,19 +98,46 @@ def _message_text(m: Any) -> str:
     return "\n".join(c.text for c in m.content if isinstance(c, ContentText))
 
 
-@step(name="malt.row_transform_opening")
-async def row_transform_opening(context: StepContext, run: AgentRun, max_chars: int) -> TextEntity:
-    """Take the messages before the agent's first action, where the task is stated."""
-    parts: list[str] = []
+@step(name="malt.row_transform_task_text")
+async def row_transform_task_text(context: StepContext, run: AgentRun) -> str:
+    """Find the task text among the messages before the agent's first action (tasktext.py)."""
+    opening: list[tuple[str, str]] = []
     for m in run.transcripts[0].messages:
         if isinstance(m, AssistantMessage):
             break
-        role = "system" if isinstance(m, SystemMessage) else "user"
-        parts.append(f"## {role} message\n\n{_message_text(m)}")
-    text = "\n\n".join(parts)
-    if len(text) > max_chars:
-        text = text[:max_chars] + f"\n[... {len(text) - max_chars} characters omitted ...]"
-    return TextEntity(text=text)
+        opening.append(("system" if isinstance(m, SystemMessage) else "user", _message_text(m)))
+    return task_text(opening)
+
+
+class ClusterText(TypedDict):
+    id: str
+    text: str
+    runs: int
+
+
+class ClusterMember(TypedDict):
+    task: str
+    run: str
+    id: str
+
+
+class TaskClusters(TypedDict):
+    """Runs grouped by task text; `texts` is sorted by how many runs share each text."""
+
+    texts: list[ClusterText]
+    members: list[ClusterMember]
+
+
+@step(name="malt.frame_transform_cluster_task_texts")
+async def frame_transform_cluster_task_texts(
+    context: StepContext, texts: Annotated[Array[str], "[task: str, run: str]"]
+) -> TaskClusters:
+    """Group runs whose task texts contain one another, so each task's rules are extracted once."""
+    clusters = cluster({(str(k[0]), str(k[1])): v for k, v in texts.items()})
+    return TaskClusters(
+        texts=[ClusterText(id=c.id, text=c.text, runs=len(c.members)) for c in clusters],
+        members=[ClusterMember(task=k[0], run=k[1], id=c.id) for c in clusters for k in c.members],
+    )
 
 
 def rules_schema() -> JSONObject:
@@ -135,7 +168,7 @@ def rules_schema() -> JSONObject:
 
 EXTRACT_TEMPLATE = (
     SystemMessage(content=(ContentText(text="{instructions}"),)),
-    UserMessage(content=(ContentText(text="{opening}\n\n{rubric}\n\n{output_schema}"),)),
+    UserMessage(content=(ContentText(text="# The task\n\n{task}\n\n{rubric}\n\n{output_schema}"),)),
 )
 
 
@@ -146,13 +179,15 @@ async def row_extract_rules(
     sampling: SamplingParamsEntity,
     instructions: TextEntity,
     rubric: TextEntity,
-    opening: TextEntity,
+    task_text: str,
 ) -> Judgment:
     """List the rules the task states about how the agent may do the work."""
+    task = TextEntity(text=task_text)
+    await context.store(task)  # a judgment refers to its entities, which must be stored first
     return await _judge(
         model_name,
         context_template=EXTRACT_TEMPLATE,
-        entities={"instructions": instructions, "rubric": rubric, "opening": opening},
+        entities={"instructions": instructions, "rubric": rubric, "task": task},
         entity_to_prompt_text=DEFAULT_ENTITY_TO_PROMPT_TEXT,
         output_schema=rules_schema(),
         sampling=sampling.params,
@@ -431,7 +466,9 @@ class Audit(DataclassEntity, fxtr_type="local.malt_fxtr.Audit.v1"):
     judge_model: str
     summary: AuditSummary
     rows: BoundID[Array[AuditRow]]
-    rules: BoundID[Array[BoundID[TextEntity]]]
+    task_texts: BoundID[Array[ClusterText]]  # [text]: the review queue, most runs first
+    extractions: BoundID[Array[BoundID[Judgment]]]  # [text]: each task text's rule extraction
+    rules: BoundID[Array[BoundID[TextEntity]]]  # [task, run]: the rules each run was judged against
     judgments: BoundID[Array[BoundID[Judgment]]]  # the full judge
     action_judgments: BoundID[Array[BoundID[Judgment]]]  # the actions-only judge
     runs: BoundID[Array[BoundID[AgentRun]]]  # compacted, as the full judge read them
@@ -442,7 +479,6 @@ class Audit(DataclassEntity, fxtr_type="local.malt_fxtr.Audit.v1"):
 async def rules_audit(
     context: WorkflowContext,
     runs: Annotated[ArrayHandle[BoundID[AgentRun]], "[task: str, run: str]"],
-    max_opening_chars: ScalarHandle[int],
     max_tool_chars: ScalarHandle[int],
     extract_model: ScalarHandle[str],
     extract_sampling: ScalarHandle[BoundID[SamplingParamsEntity]],
@@ -455,14 +491,30 @@ async def rules_audit(
 ) -> Audit:
     """Extract each task's stated rules, then judge every run against them."""
     each = ["task", "run"]
-    openings = context.run_step("row_transform_opening", row_transform_opening, {"run": runs, "max_chars": max_opening_chars}, map_over=each)
+    texts = context.run_step("row_transform_task_text", row_transform_task_text, {"run": runs}, map_over=each)
+    clusters = context.run_step("frame_transform_cluster_task_texts", frame_transform_cluster_task_texts, {"texts": texts})
+    cluster_texts = fxtr.sql(
+        "SELECT {text: t.id} AS dims, t AS value FROM (SELECT unnest(value.texts) AS t FROM clusters)",
+        tables={"clusters": clusters},
+        output_type=("[text: str]", ClusterText),
+    ).collect()
+    members = fxtr.sql(
+        "SELECT {task: m.task, run: m.run} AS dims, m.id AS value FROM (SELECT unnest(value.members) AS m FROM clusters)",
+        tables={"clusters": clusters},
+        output_type=("[task: str, run: str]", str),
+    ).collect()
     extractions = context.run_step(
         "row_extract_rules",
         row_extract_rules,
-        {"model_name": extract_model, "sampling": extract_sampling, "instructions": instructions, "rubric": extract_rubric, "opening": openings},
-        map_over=each,
+        {
+            "model_name": extract_model, "sampling": extract_sampling, "instructions": instructions, "rubric": extract_rubric,
+            "task_text": cluster_texts.field("text").collect(),
+        },
+        map_over=["text"],
     )
-    rules = context.run_step("row_transform_rules_text", row_transform_rules_text, {"extraction": extractions}, map_over=each)
+    text_rules = context.run_step("row_transform_rules_text", row_transform_rules_text, {"extraction": extractions}, map_over=["text"])
+    # Each run gets its task text's rules.
+    rules = members.join(text_rules, on=[(value(), dim("text"))]).field("right").collect()
     compact = context.run_step("row_transform_compact_run", row_transform_compact_run, {"run": runs, "max_tool_chars": max_tool_chars}, map_over=each)
     actions = context.run_step("row_transform_actions_only", row_transform_actions_only, {"run": compact}, map_over=each)
     judge_inputs = {"model_name": judge_model, "sampling": judge_sampling, "instructions": instructions, "rules": rules}
@@ -477,6 +529,8 @@ async def rules_audit(
         judge_model=await judge_model.item(),
         summary=await summary.item(),
         rows=await context.store(await rows.observe()),
+        task_texts=await context.store(await cluster_texts.observe()),
+        extractions=await context.store(await extractions.observe()),
         rules=await context.store(await rules.observe()),
         judgments=await context.store(await judgments.observe()),
         action_judgments=await context.store(await action_judgments.observe()),

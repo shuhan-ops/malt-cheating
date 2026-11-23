@@ -59,7 +59,6 @@ async def main(args: argparse.Namespace) -> None:
 
         inputs = {
             "runs": runs,
-            "max_opening_chars": Array.scalar(30000, int),
             "max_tool_chars": Array.scalar(args.max_tool_chars, int),
             "extract_model": Array.scalar(args.extract_model, str),
             "extract_sampling": await sampling("medium"),
@@ -70,7 +69,7 @@ async def main(args: argparse.Namespace) -> None:
             "actions_judge_rubric": await text(judge_rubric + "\n\n" + (HERE / "rubrics/judge_actions_only.md").read_text()),
             "instructions": Array.scalar(await client.store(DEFAULT_SYSTEM_INSTRUCTIONS_ENTITY), BoundID[TextEntity]),
         }
-        await run_job(client, rules_audit, inputs, root=f"audit-rules-{'all' if args.all else 'reviewed'}-v1")
+        await run_job(client, rules_audit, inputs, root=f"rules-audit-{'all' if args.all else 'reviewed'}-v2")
 
 
 if __name__ == "__main__":
