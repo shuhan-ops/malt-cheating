@@ -44,6 +44,13 @@ def read_rows(tasks: list[str]) -> list[tuple[dict, list]]:
     ).fetchall()
 
 
+def pick_statement(counts: Counter) -> str:
+    """The task statement to extract rules from: the most common first user message long enough to be
+    the task itself (scaffolds differ in how they wrap it, and some open with a short scaffold note)."""
+    long = [(n, text) for text, n in counts.items() if len(text) >= 500]
+    return max(long)[1] if long else max(counts, key=len)
+
+
 async def main(args: argparse.Namespace) -> None:
     tasks = args.tasks.split(",") if args.tasks else PILOT_TASKS
     rows = read_rows(tasks)
@@ -58,15 +65,16 @@ async def main(args: argparse.Namespace) -> None:
         if (text := task_statement(samples)) is not None:
             statements.setdefault(meta["task_id"], Counter())[text] += 1
     print(f"converted {len(runs)} runs from {len(tasks)} tasks")
+    chosen = {task: pick_statement(counts) for task, counts in statements.items()}
     for task, counts in statements.items():
         if len(counts) > 1:
-            print(f"  {task}: {len(counts)} distinct task statements; using the most common ({counts.most_common(1)[0][1]} runs)")
+            print(f"  {task}: {len(counts)} distinct first user messages; using one of {len(chosen[task])} chars ({counts[chosen[task]]} runs)")
 
     array = f"malt_{args.name}"
     async with open_local_client(__file__, max_concurrency=16) as client:
         refs = [((task, run.name or ""), await client.store(run)) for task, run in runs]
         items = Array.from_items(refs, ("[task: str, run: str]", BoundID[AgentRun]))
-        task_refs = [((task,), await client.store(TextEntity(text=counts.most_common(1)[0][0]))) for task, counts in statements.items()]
+        task_refs = [((task,), await client.store(TextEntity(text=chosen[task]))) for task, counts in statements.items()]
         task_items = Array.from_items(task_refs, ("[task: str]", BoundID[TextEntity]))
         existing = {info.name for info in await client.list_arrays()}
         for name, value, schema in (
