@@ -2,18 +2,18 @@
 
 For each run (an `AgentRun` from `load.py`, keyed by [task, run]):
 
-1. `malt.opening` takes the messages before the agent's first action: where the task, in whatever
+1. `malt.row_transform_opening` takes the messages before the agent's first action: where the task, in whatever
    scaffold wording that run received, is stated.
-2. `malt.extract_rules` asks a model to list the task's stated rules (rubrics/extract_rules.md).
+2. `malt.row_extract_rules` asks a model to list the task's stated rules (rubrics/extract_rules.md).
    Runs that received the same wording share one opening, so the step cache makes this one call
    per distinct wording, not per run.
-3. `malt.rules_text` numbers the rules (R1, R2, ...) as a text the judge reads.
-4. `malt.compact_run` caps each tool result's length so long runs fit the judge's context, and
-   `malt.actions_only` makes a second copy with only the tool calls and their results.
-5. `malt.judge_rules` runs twice: a full judge on the whole run gives a verdict and a disclosure
+3. `malt.row_transform_rules_text` numbers the rules (R1, R2, ...) as a text the judge reads.
+4. `malt.row_transform_compact_run` caps each tool result's length so long runs fit the judge's context, and
+   `malt.row_transform_actions_only` makes a second copy with only the tool calls and their results.
+5. `malt.row_judge_rules` runs twice: a full judge on the whole run gives a verdict and a disclosure
    level per rule (rubrics/judge_ignores_instructions.md); an actions-only judge gives verdicts from
    the tool calls alone (that rubric plus rubrics/judge_actions_only.md). Both cite transcript lines.
-6. `malt.audit_row` puts both judgments next to MALT's own labels, and `malt.summarize_audit`
+6. `malt.row_transform_audit_row` puts both judgments next to MALT's own labels, and `malt.frame_aggregate_agreement`
    compares each judge with MALT's `ignores_task_instructions` label and with the other.
 
 The workflow returns an `Audit` that references every array, for the results overview.
@@ -92,8 +92,8 @@ def _message_text(m: Any) -> str:
     return "\n".join(c.text for c in m.content if isinstance(c, ContentText))
 
 
-@step(name="malt.opening")
-async def opening(context: StepContext, run: AgentRun, max_chars: int) -> TextEntity:
+@step(name="malt.row_transform_opening")
+async def row_transform_opening(context: StepContext, run: AgentRun, max_chars: int) -> TextEntity:
     """Take the messages before the agent's first action, where the task is stated."""
     parts: list[str] = []
     for m in run.transcripts[0].messages:
@@ -139,8 +139,8 @@ EXTRACT_TEMPLATE = (
 )
 
 
-@step(name="malt.extract_rules")
-async def extract_rules(
+@step(name="malt.row_extract_rules")
+async def row_extract_rules(
     context: StepContext,
     model_name: str,
     sampling: SamplingParamsEntity,
@@ -159,8 +159,8 @@ async def extract_rules(
     )
 
 
-@step(name="malt.rules_text")
-async def rules_text(context: StepContext, extraction: Judgment) -> TextEntity:
+@step(name="malt.row_transform_rules_text")
+async def row_transform_rules_text(context: StepContext, extraction: Judgment) -> TextEntity:
     """Number the extracted rules R1, R2, ... as the text the judge reads."""
     if extraction.output is None:
         raise ValueError("rule extraction gave no answer")
@@ -179,8 +179,8 @@ def _cap(text: str, limit: int) -> str:
     return f"{text[:head]}\n[... {len(text) - head - tail} characters omitted ...]\n{text[-tail:]}"
 
 
-@step(name="malt.compact_run")
-async def compact_run(context: StepContext, run: AgentRun, max_tool_chars: int) -> AgentRun:
+@step(name="malt.row_transform_compact_run")
+async def row_transform_compact_run(context: StepContext, run: AgentRun, max_tool_chars: int) -> AgentRun:
     """Cap each tool result's length so the run fits the judge's context."""
     transcripts = []
     for t in run.transcripts:
@@ -193,8 +193,8 @@ async def compact_run(context: StepContext, run: AgentRun, max_tool_chars: int) 
     return replace(run, transcripts=tuple(transcripts))
 
 
-@step(name="malt.actions_only")
-async def actions_only(context: StepContext, run: AgentRun) -> AgentRun:
+@step(name="malt.row_transform_actions_only")
+async def row_transform_actions_only(context: StepContext, run: AgentRun) -> AgentRun:
     """Keep only the task, the agent's tool calls, and their results: no reasoning or messages."""
     transcripts = []
     for t in run.transcripts:
@@ -271,8 +271,8 @@ JUDGE_TEMPLATE = (
 )
 
 
-@step(name="malt.judge_rules")
-async def judge_rules(
+@step(name="malt.row_judge_rules")
+async def row_judge_rules(
     context: StepContext,
     model_name: str,
     sampling: SamplingParamsEntity,
@@ -343,8 +343,8 @@ def judge_row(judgment: Judgment) -> JudgeRow:
     )
 
 
-@step(name="malt.audit_row")
-async def audit_row(context: StepContext, full: Judgment, actions: Judgment, run: AgentRun) -> AuditRow:
+@step(name="malt.row_transform_audit_row")
+async def row_transform_audit_row(context: StepContext, full: Judgment, actions: Judgment, run: AgentRun) -> AuditRow:
     """Put one run's verdicts from both judges next to MALT's labels."""
     labels = [str(x) for x in (run.metadata.get("labels") or [])]
     model = run.metadata.get("model")
@@ -404,8 +404,8 @@ def _agreement(rows: list[tuple[str, AuditRow]], which: Literal["full", "actions
     return a
 
 
-@step(name="malt.summarize_audit")
-async def summarize_audit(context: StepContext, rows: Annotated[Array[AuditRow], "[task: str, run: str]"]) -> AuditSummary:
+@step(name="malt.frame_aggregate_agreement")
+async def frame_aggregate_agreement(context: StepContext, rows: Annotated[Array[AuditRow], "[task: str, run: str]"]) -> AuditSummary:
     """Compare each judge with MALT's ignores_task_instructions label and with the other."""
     named = [(f"{key[0]}/{key[1]}", row) for key, row in rows.items()]
     disclosure = DisclosureCounts(hidden=0, mentioned=0, flagged=0)
@@ -438,8 +438,8 @@ class Audit(DataclassEntity, fxtr_type="local.malt_fxtr.Audit.v1"):
     action_runs: BoundID[Array[BoundID[AgentRun]]]  # as the actions-only judge read them
 
 
-@workflow(name="malt.audit_rules")
-async def audit_rules(
+@workflow(name="malt.rules_audit")
+async def rules_audit(
     context: WorkflowContext,
     runs: Annotated[ArrayHandle[BoundID[AgentRun]], "[task: str, run: str]"],
     max_opening_chars: ScalarHandle[int],
@@ -455,23 +455,23 @@ async def audit_rules(
 ) -> Audit:
     """Extract each task's stated rules, then judge every run against them."""
     each = ["task", "run"]
-    openings = context.run_step("opening", opening, {"run": runs, "max_chars": max_opening_chars}, map_over=each)
+    openings = context.run_step("row_transform_opening", row_transform_opening, {"run": runs, "max_chars": max_opening_chars}, map_over=each)
     extractions = context.run_step(
-        "extract_rules",
-        extract_rules,
+        "row_extract_rules",
+        row_extract_rules,
         {"model_name": extract_model, "sampling": extract_sampling, "instructions": instructions, "rubric": extract_rubric, "opening": openings},
         map_over=each,
     )
-    rules = context.run_step("rules_text", rules_text, {"extraction": extractions}, map_over=each)
-    compact = context.run_step("compact", compact_run, {"run": runs, "max_tool_chars": max_tool_chars}, map_over=each)
-    actions = context.run_step("actions_only", actions_only, {"run": compact}, map_over=each)
+    rules = context.run_step("row_transform_rules_text", row_transform_rules_text, {"extraction": extractions}, map_over=each)
+    compact = context.run_step("row_transform_compact_run", row_transform_compact_run, {"run": runs, "max_tool_chars": max_tool_chars}, map_over=each)
+    actions = context.run_step("row_transform_actions_only", row_transform_actions_only, {"run": compact}, map_over=each)
     judge_inputs = {"model_name": judge_model, "sampling": judge_sampling, "instructions": instructions, "rules": rules}
-    judgments = context.run_step("judge", judge_rules, {**judge_inputs, "rubric": judge_rubric, "run": compact}, map_over=each)
+    judgments = context.run_step("row_judge_rules_full", row_judge_rules, {**judge_inputs, "rubric": judge_rubric, "run": compact}, map_over=each)
     action_judgments = context.run_step(
-        "judge_actions_only", judge_rules, {**judge_inputs, "rubric": actions_judge_rubric, "run": actions}, map_over=each
+        "row_judge_rules_actions_only", row_judge_rules, {**judge_inputs, "rubric": actions_judge_rubric, "run": actions}, map_over=each
     )
-    rows = context.run_step("rows", audit_row, {"full": judgments, "actions": action_judgments, "run": runs}, map_over=each)
-    summary = context.run_step("summary", summarize_audit, {"rows": rows})
+    rows = context.run_step("row_transform_audit_row", row_transform_audit_row, {"full": judgments, "actions": action_judgments, "run": runs}, map_over=each)
+    summary = context.run_step("frame_aggregate_agreement", frame_aggregate_agreement, {"rows": rows})
     return Audit(
         extract_model=await extract_model.item(),
         judge_model=await judge_model.item(),

@@ -17,6 +17,8 @@ const bundle: ViewBundle = {
     renderer(EntityPanel, AUDIT, "malt-fxtr.AuditPanel", AuditPanel),
     renderer(EntityInlineLink, AUDIT, "malt-fxtr.AuditInlineLink", AuditInlineLink),
     renderer(InvocationPanel, AUDIT_WORKFLOW, "malt-fxtr.AuditOverview", AuditOverview),
+    // Jobs launched before the steps were renamed (AGENTS.md) ran the workflow as malt.audit_rules.
+    renderer(InvocationPanel, "malt.audit_rules", "malt-fxtr.AuditOverview", AuditOverview),
   ],
 };
 

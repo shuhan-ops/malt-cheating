@@ -42,8 +42,8 @@ class RunSet(DataclassEntity, fxtr_type="local.malt_fxtr.RunSet.v1"):
     stats: BoundID[Array[RunStats]]
 
 
-@step(name="malt.run_stats")
-async def run_stats(context: StepContext, run: AgentRun) -> RunStats:
+@step(name="malt.row_transform_run_stats")
+async def row_transform_run_stats(context: StepContext, run: AgentRun) -> RunStats:
     """Flatten a run's MALT metadata and count its messages, tool calls, and reasoning."""
     meta = run.metadata
     messages = [m for t in run.transcripts for m in t.messages]
@@ -68,13 +68,13 @@ async def run_stats(context: StepContext, run: AgentRun) -> RunStats:
     )
 
 
-@workflow(name="malt.index_runs")
-async def index_runs(
+@workflow(name="malt.run_index")
+async def run_index(
     context: WorkflowContext,
     runs: Annotated[ArrayHandle[BoundID[AgentRun]], "[task: str, run: str]"],
 ) -> RunSet:
     """List each MALT run with its model, labels, and message counts."""
-    stats = context.run_step("run_stats", run_stats, {"run": runs}, map_over=["task", "run"])
+    stats = context.run_step("row_transform_run_stats", row_transform_run_stats, {"run": runs}, map_over=["task", "run"])
     return RunSet(
         runs=await context.store(await runs.observe()),
         stats=await context.store(await stats.observe()),

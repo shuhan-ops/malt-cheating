@@ -22,7 +22,7 @@ import {
 import { DataTable, InvocationHead, InvocationOutcome, Kind, Stat, Stats, formatNumber, layout, type TableColumn } from "fxtr-view-kit";
 
 export const AUDIT = "local.malt_fxtr.Audit.v1";
-export const AUDIT_WORKFLOW = "malt.audit_rules";
+export const AUDIT_WORKFLOW = "malt.rules_audit";
 
 interface Agreement {
   readonly judged: number;

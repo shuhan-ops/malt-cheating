@@ -22,7 +22,7 @@ from fxtr.core.entities import BoundID
 from fxtr.entity_defns.array import Array
 from fxtr.project.client import JobNotFinishedError
 from fxtr.project.running import open_local_client, run_job
-from malt_fxtr.audit import SamplingParamsEntity, audit_rules
+from malt_fxtr.audit import SamplingParamsEntity, rules_audit
 
 HERE = Path(__file__).resolve().parent
 DATA = Path.home() / "risk_behavior_motive/data/raw/malt/data"
@@ -70,7 +70,7 @@ async def main(args: argparse.Namespace) -> None:
             "actions_judge_rubric": await text(judge_rubric + "\n\n" + (HERE / "rubrics/judge_actions_only.md").read_text()),
             "instructions": Array.scalar(await client.store(DEFAULT_SYSTEM_INSTRUCTIONS_ENTITY), BoundID[TextEntity]),
         }
-        await run_job(client, audit_rules, inputs, root=f"audit-rules-{'all' if args.all else 'reviewed'}-v1")
+        await run_job(client, rules_audit, inputs, root=f"audit-rules-{'all' if args.all else 'reviewed'}-v1")
 
 
 if __name__ == "__main__":

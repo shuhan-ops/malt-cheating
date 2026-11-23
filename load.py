@@ -4,7 +4,7 @@ Reads the `default` config of `metr-evals/malt-public` (parquet files downloaded
 risk_behavior_motive/data/raw/malt/data), converts each run of the chosen tasks to a behaviors
 `AgentRun`, and stores them in the project array `malt_<name>` keyed by [task, run]. It also stores
 each task's statement (the first user message, as a `TextEntity`) in `malt_<name>_tasks` keyed by
-[task], and runs `malt.index_runs` on a snapshot of the runs so they can be browsed in the viewer.
+[task], and runs `malt.run_index` on a snapshot of the runs so they can be browsed in the viewer.
 """
 
 import argparse
@@ -21,7 +21,7 @@ from fxtr.entity_defns.array import Array
 from fxtr.project.client import JobNotFinishedError
 from fxtr.project.running import open_local_client, run_job
 from malt_fxtr.convert import convert, task_statement
-from malt_fxtr.runs import index_runs
+from malt_fxtr.runs import run_index
 
 DATA = Path.home() / "risk_behavior_motive/data/raw/malt/data"
 
@@ -86,7 +86,7 @@ async def main(args: argparse.Namespace) -> None:
             await client.replace_array(name, value)
             print(f"project array {name}: {len(value)} rows")
         snapshot = await client.snapshot_array(array)
-        await run_job(client, index_runs, {"runs": snapshot.array}, root=f"index-{args.name}-v1")
+        await run_job(client, run_index, {"runs": snapshot.array}, root=f"index-{args.name}-v1")
 
 
 if __name__ == "__main__":
