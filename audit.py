@@ -48,6 +48,8 @@ async def main(args: argparse.Namespace) -> None:
             return
         runs = Array.from_items(items, ("[task: str, run: str]", BoundID[AgentRun]))
 
+        judge_rubric = (HERE / "rubrics/judge_ignores_instructions.md").read_text()
+
         async def text(t: str) -> Array:
             return Array.scalar(await client.store(TextEntity(text=t)), BoundID[TextEntity])
 
@@ -64,7 +66,8 @@ async def main(args: argparse.Namespace) -> None:
             "extract_rubric": await text((HERE / "rubrics/extract_rules.md").read_text()),
             "judge_model": Array.scalar(args.judge_model, str),
             "judge_sampling": await sampling("high"),
-            "judge_rubric": await text((HERE / "rubrics/judge_ignores_instructions.md").read_text()),
+            "judge_rubric": await text(judge_rubric),
+            "actions_judge_rubric": await text(judge_rubric + "\n\n" + (HERE / "rubrics/judge_actions_only.md").read_text()),
             "instructions": Array.scalar(await client.store(DEFAULT_SYSTEM_INSTRUCTIONS_ENTITY), BoundID[TextEntity]),
         }
         await run_job(client, audit_rules, inputs, root=f"audit-rules-{'all' if args.all else 'reviewed'}-v1")

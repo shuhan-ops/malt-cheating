@@ -75,16 +75,30 @@ def linearize(samples: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict
             offset += len(new)
         pending.clear()
 
+    # When a scaffold trims a long context it inserts a system note ("Part of the history of the
+    # conversation has been trimmed ...") and re-sends kept history under new node IDs. Those
+    # copies chain from the note by parent ID; skip them while their content repeats what we have.
+    trims_and_copies: set[int] = set()
+    stats["trims"] = 0
+
     for sample in samples:
         inputs = list(sample.get("input") or [])
         resolve_pending(inputs)
-        for m in inputs:
-            node = (m.get("metadata") or {}).get("node_id")
+        for j, m in enumerate(inputs):
+            meta = m.get("metadata") or {}
+            node, parent = meta.get("node_id"), meta.get("parent_node_id")
             fp = _fingerprint(m)
             if node is not None:
                 if node in seen_nodes:
                     continue
                 seen_nodes.add(node)
+                if m.get("role") == "system" and j > 0:
+                    trims_and_copies.add(node)
+                    stats["trims"] += 1
+                    continue
+                if parent in trims_and_copies and fp in seen_prints:
+                    trims_and_copies.add(node)
+                    continue
                 if fp in seen_prints and m.get("role") == "assistant":
                     continue  # an output we already appended
             elif fp in seen_prints:
